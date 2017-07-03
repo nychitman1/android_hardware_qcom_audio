@@ -270,6 +270,7 @@ struct stream_out {
     struct audio_out_start_delay_param delay_param; /*start delay*/
 
     audio_offload_info_t info;
+    int started;
     qahwi_stream_out_t qahwi_out;
 };
 
@@ -442,6 +443,7 @@ struct audio_device {
     bool asrc_mode_enabled;
     qahwi_device_t qahwi_dev;
     bool vr_audio_mode_enabled;
+    bool bt_sco_on;
 };
 
 int select_devices(struct audio_device *adev,
