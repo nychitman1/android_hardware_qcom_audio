@@ -167,6 +167,8 @@ static void update_hardware_info_8x16(struct hardware_info *hw_info, const char 
         strlcpy(hw_info->name, "apq8009", sizeof(hw_info->name));
     } else if (!strcmp(snd_card_name, "mdm9607-tomtom-i2s-snd-card")) {
         strlcpy(hw_info->name, "mdm9607", sizeof(hw_info->name));
+    } else if (!strcmp(snd_card_name, "mdm-tasha-i2s-snd-card")) {
+        strlcpy(hw_info->name, "mdm-tasha", sizeof(hw_info->name));
     } else {
         ALOGW("%s: Not an 8x16/8909/8917/8920/8937/8939/8940/8952/8953/660 device", __func__);
     }
@@ -196,7 +198,7 @@ void *hw_info_init(const char *snd_card_name)
         strstr(snd_card_name, "msm8937") || strstr(snd_card_name, "msm8917") ||
         strstr(snd_card_name, "msm8940") || strstr(snd_card_name, "msm8920") ||
         strstr(snd_card_name, "sdm660") || strstr(snd_card_name, "apq8009") ||
-		strstr(snd_card_name, "mdm9607")) {
+	strstr(snd_card_name, "mdm9607") || strstr(snd_card_name, "mdm-tasha")) {
         ALOGV("8x16 - variant soundcard");
         update_hardware_info_8x16(hw_info, snd_card_name);
     } else {

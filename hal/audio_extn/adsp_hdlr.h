@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2016, The Linux Foundation. All rights reserved.
+* Copyright (c) 2017, The Linux Foundation. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions are
@@ -26,44 +26,40 @@
 * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
+#ifndef AUDIO_HW_EXTN_ADSP_HDLR_H
+#define AUDIO_HW_EXTN_ADSP_HDLR_H
 
-#ifndef AUDIO_HW_EXTN_API_H
-#define AUDIO_HW_EXTN_API_H
-__BEGIN_DECLS
-#ifdef AUDIO_HW_EXTN_API_ENABLED
-#include <hardware/audio.h>
-typedef struct qahwi_stream_in qahwi_stream_in_t;
-typedef struct qahwi_stream_out qahwi_stream_out_t;
-typedef struct qahwi_device qahwi_device_t;
+typedef enum adsp_hdlr_command {
+    ADSP_HDLR_CMD_INVALID = 0,
+    ADSP_HDLR_STREAM_CMD_REGISTER_EVENT,
+    ADSP_HDLR_STREAM_CMD_DEREGISTER_EVENT,
+} adsp_hdlr_cmd_t;
 
-struct qahwi_stream_in {
-    struct audio_stream_in base;
-    bool is_inititalized;
-    void *ibuf;
+struct adsp_hdlr_stream_cfg {
+    int pcm_device_id;
+    uint32_t flags;
+    usecase_type_t type;
 };
 
-struct qahwi_stream_out {
-    struct audio_stream_out base;
-    bool is_inititalized;
-    size_t buf_size;
-    void *obuf;
-};
-
-struct qahwi_device {
-    struct audio_hw_device base;
-    bool is_inititalized;
-};
-
-void qahwi_init(hw_device_t *device);
-void qahwi_deinit(hw_device_t *device);
+#ifdef AUDIO_EXTN_ADSP_HDLR_ENABLED
+int audio_extn_adsp_hdlr_init(struct mixer *mixer);
+int audio_extn_adsp_hdlr_deinit(void);
+int audio_extn_adsp_hdlr_stream_open(void **handle,
+                struct adsp_hdlr_stream_cfg *config);
+int audio_extn_adsp_hdlr_stream_close(void *handle);
+int audio_extn_adsp_hdlr_stream_set_callback(void *handle,
+                    stream_callback_t callback,
+                    void *cookie);
+int audio_extn_adsp_hdlr_stream_set_param(void *handle,
+                    adsp_hdlr_cmd_t cmd,
+                    void *param);
 #else
-typedef void *qahwi_stream_in_t;
-typedef void *qahwi_stream_out_t;
-typedef void *qahwi_device_t;
+#define audio_extn_adsp_hdlr_init(mixer)                                     (0)
+#define audio_extn_adsp_hdlr_deinit()                                        (0)
+#define audio_extn_adsp_hdlr_stream_open(handle,config)                      (0)
+#define audio_extn_adsp_hdlr_stream_close(handle)                            (0)
+#define audio_extn_adsp_hdlr_stream_set_callback(handle, callback, cookie)   (0)
+#define audio_extn_adsp_hdlr_stream_set_param(handle, cmd, param)            (0)
+#endif
 
-#define qahwi_init(device) (0)
-#define qahwi_deinit(device) (0)
-#endif  // AUDIO_HW_EXTN_API_ENABLED
-
-__END_DECLS
-#endif  // AUDIO_HW_EXTN_API_H
+#endif

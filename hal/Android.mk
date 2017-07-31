@@ -343,6 +343,11 @@ ifeq ($(strip $(AUDIO_FEATURE_ENABLED_GEF_SUPPORT)),true)
     LOCAL_SRC_FILES += audio_extn/gef.c
 endif
 
+ifeq ($(strip $($AUDIO_FEATURE_ADSP_HDLR_ENABLED)),true)
+    LOCAL_CFLAGS += -DAUDIO_EXTN_ADSP_HDLR_ENABLED
+    LOCAL_SRC_FILES += audio_extn/adsp_hdlr.c
+endif
+
 LOCAL_CFLAGS += -Wall -Werror
 LOCAL_CLANG_CFLAGS += -Wno-unused-variable -Wno-unused-function -Wno-missing-field-initializers
 

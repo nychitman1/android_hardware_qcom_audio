@@ -48,6 +48,7 @@
 
 #include "audio_hw.h"
 #include "audio_extn.h"
+#include "audio_defs.h"
 #include "platform.h"
 #include "platform_api.h"
 #include "edid.h"
@@ -180,6 +181,41 @@ static int update_ext_disp_sysfs_node(const struct audio_device *adev, int node_
     return ret;
 }
 
+static int update_audio_ack_state(const struct audio_device *adev, int node_value)
+{
+    const char *mixer_ctl_name = "External Display Audio Ack";
+    struct mixer_ctl *ctl;
+    int ret = 0;
+
+    ctl = mixer_get_ctl_by_name(adev->mixer, mixer_ctl_name);
+    /* If no mixer command support, fall back to sysfs node approach */
+    if (!ctl) {
+        ALOGI("%s: could not get ctl for mixer cmd(%s), use sysfs node instead\n",
+              __func__, mixer_ctl_name);
+        ret = update_ext_disp_sysfs_node(adev, node_value);
+    } else {
+        char *ack_str = NULL;
+
+        if (node_value == EXT_DISPLAY_PLUG_STATUS_NOTIFY_ENABLE)
+            ack_str = "Ack_Enable";
+        else if (node_value == 1)
+            ack_str = "Connect";
+        else if (node_value == 0)
+            ack_str = "Disconnect";
+        else {
+            ALOGE("%s: Invalid input parameter - 0x%x\n",
+                  __func__, node_value);
+            return -EINVAL;
+        }
+
+        ret = mixer_ctl_set_enum_by_string(ctl, ack_str);
+        if (ret)
+            ALOGE("%s: Could not set ctl for mixer cmd - %s ret %d\n",
+                  __func__, mixer_ctl_name, ret);
+    }
+    return ret;
+}
+
 static void audio_extn_ext_disp_set_parameters(const struct audio_device *adev,
                                                      struct str_parms *parms)
 {
@@ -192,13 +228,13 @@ static void audio_extn_ext_disp_set_parameters(const struct audio_device *adev,
         if (is_hdmi_sysfs_node_init == false) {
             //check if this is different for dp and hdmi
             is_hdmi_sysfs_node_init = true;
-            update_ext_disp_sysfs_node(adev, EXT_DISPLAY_PLUG_STATUS_NOTIFY_ENABLE);
+            update_audio_ack_state(adev, EXT_DISPLAY_PLUG_STATUS_NOTIFY_ENABLE);
         }
-        update_ext_disp_sysfs_node(adev, 1);
+        update_audio_ack_state(adev, 1);
     } else if(str_parms_get_str(parms, "disconnect", value, sizeof(value)) >= 0
             && (atoi(value) & AUDIO_DEVICE_OUT_AUX_DIGITAL)){
         //params = "disconnect=1024" for external display disconnection.
-        update_ext_disp_sysfs_node(adev, 0);
+        update_audio_ack_state(adev, 0);
         ALOGV("invalidate cached edid");
         platform_invalidate_hdmi_config(adev->platform);
     } else {
@@ -1300,3 +1336,72 @@ void audio_extn_send_aptx_dec_bt_addr_to_dsp(struct stream_out *out)
 }
 
 #endif //APTX_DECODER_ENABLED
+
+int audio_extn_out_set_param_data(struct stream_out *out,
+                             audio_extn_param_id param_id,
+                             audio_extn_param_payload *payload) {
+    int ret = -EINVAL;
+
+    if (!out || !payload) {
+        ALOGE("%s:: Invalid Param",__func__);
+        return ret;
+    }
+
+    ALOGD("%s: enter: stream (%p) usecase(%d: %s) param_id %d", __func__,
+            out, out->usecase, use_case_table[out->usecase], param_id);
+
+    switch (param_id) {
+        case AUDIO_EXTN_PARAM_OUT_RENDER_WINDOW:
+            ret = audio_extn_utils_compress_set_render_window(out,
+                    (struct audio_out_render_window_param *)(payload));
+            break;
+        case AUDIO_EXTN_PARAM_OUT_START_DELAY:
+            ret = audio_extn_utils_compress_set_start_delay(out,
+                    (struct audio_out_start_delay_param *)(payload));
+            break;
+        case AUDIO_EXTN_PARAM_ADSP_STREAM_CMD:
+            ret = audio_extn_adsp_hdlr_stream_set_param(out->adsp_hdlr_stream_handle,
+                    ADSP_HDLR_STREAM_CMD_REGISTER_EVENT,
+                    (void *)&payload->adsp_event_params);
+            break;
+         default:
+            ALOGE("%s:: unsupported param_id %d", __func__, param_id);
+            break;
+    }
+    return ret;
+}
+
+/* API to get playback stream specific config parameters */
+int audio_extn_out_get_param_data(struct stream_out *out,
+                             audio_extn_param_id param_id,
+                             audio_extn_param_payload *payload)
+{
+    int ret = -EINVAL;
+    struct audio_usecase *uc_info;
+
+    if (!out || !payload) {
+        ALOGE("%s:: Invalid Param",__func__);
+        return ret;
+    }
+
+    switch (param_id) {
+        case AUDIO_EXTN_PARAM_AVT_DEVICE_DRIFT:
+            uc_info = get_usecase_from_list(out->dev, out->usecase);
+            if (uc_info == NULL) {
+                ALOGE("%s: Could not find the usecase (%d) in the list",
+                       __func__, out->usecase);
+                ret = -EINVAL;
+            } else {
+                ret = audio_extn_utils_get_avt_device_drift(uc_info,
+                        (struct audio_avt_device_drift_param *)payload);
+                if(ret)
+                    ALOGE("%s:: avdrift query failed error %d", __func__, ret);
+            }
+            break;
+        default:
+            ALOGE("%s:: unsupported param_id %d", __func__, param_id);
+            break;
+    }
+
+    return ret;
+}

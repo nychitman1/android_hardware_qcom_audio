@@ -175,7 +175,6 @@ const char * const use_case_table[AUDIO_USECASE_MAX];
  * We should take care of returning proper size when AudioFlinger queries for
  * the buffer size of an input/output stream
  */
-
 enum {
     OFFLOAD_CMD_EXIT,               /* exit compress offload thread loop*/
     OFFLOAD_CMD_DRAIN,              /* send a full drain request to DSP */
@@ -195,6 +194,12 @@ struct offload_cmd {
     int cmd;
     int data[];
 };
+
+typedef enum render_mode {
+    RENDER_MODE_AUDIO_NO_TIMESTAMP = 0,
+    RENDER_MODE_AUDIO_MASTER,
+    RENDER_MODE_AUDIO_STC_MASTER,
+} render_mode_t;
 
 struct stream_app_type_cfg {
     int sample_rate;
@@ -237,8 +242,10 @@ struct stream_out {
     struct listnode offload_cmd_list;
     bool offload_thread_blocked;
 
-    stream_callback_t offload_callback;
-    void *offload_cookie;
+    void *adsp_hdlr_stream_handle;
+
+    stream_callback_t client_callback;
+    void *client_cookie;
     struct compr_gapless_mdata gapless_mdata;
     int send_new_metadata;
     bool send_next_track_params;
@@ -252,12 +259,19 @@ struct stream_out {
     bool realtime;
     int af_period_multiplier;
     struct audio_device *dev;
+
     void* qaf_stream_handle;
     pthread_cond_t qaf_offload_cond;
     pthread_t qaf_offload_thread;
     struct listnode qaf_offload_cmd_list;
     uint32_t platform_latency;
+    render_mode_t render_mode;
+    struct audio_out_render_window_param render_window; /*render winodw*/
+    struct audio_out_start_delay_param delay_param; /*start delay*/
+
     audio_offload_info_t info;
+    int started;
+    qahwi_stream_out_t qahwi_out;
 };
 
 struct stream_in {
@@ -429,6 +443,7 @@ struct audio_device {
     bool asrc_mode_enabled;
     qahwi_device_t qahwi_dev;
     bool vr_audio_mode_enabled;
+    bool bt_sco_on;
 };
 
 int select_devices(struct audio_device *adev,
@@ -445,6 +460,8 @@ int enable_audio_route(struct audio_device *adev,
 
 struct audio_usecase *get_usecase_from_list(const struct audio_device *adev,
                                                    audio_usecase_t uc_id);
+
+struct stream_in *get_next_active_input(const struct audio_device *adev);
 
 bool is_offload_usecase(audio_usecase_t uc_id);
 

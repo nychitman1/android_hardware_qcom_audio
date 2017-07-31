@@ -39,6 +39,7 @@
 #define AUDIO_EXTN_H
 
 #include <cutils/str_parms.h>
+#include "adsp_hdlr.h"
 
 #ifndef AFE_PROXY_ENABLED
 #define AUDIO_DEVICE_OUT_PROXY 0x40000
@@ -93,6 +94,14 @@
                                       AUDIO_FORMAT_AAC_SUB_HE_V2)
 #endif
 
+#ifndef AUDIO_FORMAT_AC4
+#define AUDIO_FORMAT_AC4  0x23000000UL
+#endif
+
+#ifndef AUDIO_OUTPUT_FLAG_TIMESTAMP
+#define AUDIO_OUTPUT_FLAG_TIMESTAMP 0x10000
+#endif
+
 #ifndef COMPRESS_METADATA_NEEDED
 #define audio_extn_parse_compress_metadata(out, parms) (0)
 #else
@@ -106,6 +115,11 @@ int audio_extn_parse_compress_metadata(struct stream_out *out,
 #else
 #define AUDIO_OUTPUT_BIT_WIDTH (CODEC_BACKEND_DEFAULT_BIT_WIDTH)
 #define compress_set_next_track_param(compress, codec_options) (0)
+#endif
+
+#ifndef AUDIO_HW_EXTN_API_ENABLED
+#define compress_set_metadata(compress, metadata) (0)
+#define compress_get_metadata(compress, metadata) (0)
 #endif
 
 #define MAX_LENGTH_MIXER_CONTROL_IN_INT                  (128)
@@ -663,6 +677,13 @@ int audio_extn_qaf_open_output_stream(struct audio_hw_device *dev,
                                    const char *address __unused);
 int audio_extn_qaf_init(struct audio_device *adev);
 int audio_extn_qaf_set_parameters(struct audio_device *adev, struct str_parms *parms);
+int audio_extn_qaf_out_set_param_data(struct stream_out *out,
+                           audio_extn_param_id param_id,
+                           audio_extn_param_payload *payload);
+int audio_extn_qaf_out_get_param_data(struct stream_out *out,
+                             audio_extn_param_id param_id,
+                             audio_extn_param_payload *payload);
+bool audio_extn_is_qaf_stream(struct stream_out *out);
 #else
 #define audio_extn_qaf_is_enabled()                                     (0)
 #define audio_extn_qaf_deinit()                                         (0)
@@ -670,6 +691,9 @@ int audio_extn_qaf_set_parameters(struct audio_device *adev, struct str_parms *p
 #define audio_extn_qaf_open_output_stream           adev_open_output_stream
 #define audio_extn_qaf_init(adev)                                       (0)
 #define audio_extn_qaf_set_parameters(adev, parms)                      (0)
+#define audio_extn_qaf_out_set_param_data(out, param_id, payload)       (0)
+#define audio_extn_qaf_out_get_param_data(out, param_id, payload)       (0)
+#define audio_extn_is_qaf_stream(out)                                   (0)
 #endif
 
 #ifdef AUDIO_EXTN_BT_HAL_ENABLED
@@ -818,5 +842,23 @@ void audio_extn_send_aptx_dec_bt_addr_to_dsp(struct stream_out *out);
 static void audio_extn_parse_aptx_dec_bt_addr(char *value);
 int audio_extn_set_aptx_dec_params(struct aptx_dec_param *payload);
 #endif
+int audio_extn_out_set_param_data(struct stream_out *out,
+                             audio_extn_param_id param_id,
+                             audio_extn_param_payload *payload);
+int audio_extn_out_get_param_data(struct stream_out *out,
+                             audio_extn_param_id param_id,
+                             audio_extn_param_payload *payload);
 
+int audio_extn_utils_get_avt_device_drift(
+                struct audio_usecase *usecase,
+                struct audio_avt_device_drift_param *drift_param);
+int audio_extn_utils_compress_get_dsp_latency(struct stream_out *out);
+int audio_extn_utils_compress_set_render_mode(struct stream_out *out);
+int audio_extn_utils_compress_set_clk_rec_mode(struct audio_usecase *usecase);
+int audio_extn_utils_compress_set_render_window(
+            struct stream_out *out,
+            struct audio_out_render_window_param *render_window);
+int audio_extn_utils_compress_set_start_delay(
+            struct stream_out *out,
+            struct audio_out_start_delay_param *start_delay_param);
 #endif /* AUDIO_EXTN_H */

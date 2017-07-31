@@ -233,6 +233,7 @@ struct platform_data {
     bool fluence_in_voice_call;
     bool fluence_in_voice_rec;
     bool fluence_in_audio_rec;
+    bool fluence_in_hfp_call;
     bool external_spk_1;
     bool external_spk_2;
     bool external_mic;
@@ -914,6 +915,24 @@ static int msm_be_id_array_len  =
 #define LOW_LATENCY_PLATFORM_DELAY (13*1000LL)
 #define ULL_PLATFORM_DELAY         (6*1000LL)
 
+static bool can_enable_mbdrc_on_device(snd_device_t snd_device)
+{
+    bool ret = false;
+
+    if (snd_device == SND_DEVICE_OUT_SPEAKER ||
+        snd_device == SND_DEVICE_OUT_SPEAKER_WSA ||
+        snd_device == SND_DEVICE_OUT_SPEAKER_VBAT ||
+        snd_device == SND_DEVICE_OUT_VOICE_SPEAKER_VBAT ||
+        snd_device == SND_DEVICE_OUT_VOICE_SPEAKER_2_VBAT ||
+        snd_device == SND_DEVICE_OUT_VOICE_SPEAKER ||
+        snd_device == SND_DEVICE_OUT_VOICE_SPEAKER_2 ||
+        snd_device == SND_DEVICE_OUT_VOICE_SPEAKER_WSA ||
+        snd_device == SND_DEVICE_OUT_VOICE_SPEAKER_2_WSA) {
+        ret = true;
+    }
+    return ret;
+}
+
 bool platform_send_gain_dep_cal(void *platform, int level) {
     bool ret_val = false;
     struct platform_data *my_data = (struct platform_data *)platform;
@@ -939,16 +958,25 @@ bool platform_send_gain_dep_cal(void *platform, int level) {
 
             if (usecase != NULL &&
                 usecase->type == PCM_PLAYBACK &&
-                usecase->stream.out->devices == AUDIO_DEVICE_OUT_SPEAKER) {
+                usecase->stream.out->devices & AUDIO_DEVICE_OUT_SPEAKER) {
+                int new_snd_device[2] = {0};
+                int i, num_devices = 1;
 
                 ALOGV("%s: out device is %d", __func__,  usecase->out_snd_device);
                 app_type = usecase->stream.out->app_type_cfg.app_type;
+                acdb_dev_id = acdb_device_table[usecase->out_snd_device];
 
-                if (audio_extn_spkr_prot_is_enabled()) {
-                    acdb_dev_id = platform_get_spkr_prot_acdb_id(usecase->out_snd_device);
-                } else {
-                    acdb_dev_id = acdb_device_table[usecase->out_snd_device];
-                }
+                if (platform_split_snd_device(my_data, usecase->out_snd_device,
+                                              &num_devices, new_snd_device) < 0)
+                    new_snd_device[0] = usecase->out_snd_device;
+
+                for (i = 0; i < num_devices; i++)
+                    if (can_enable_mbdrc_on_device(new_snd_device[i])) {
+                        if (audio_extn_spkr_prot_is_enabled())
+                            acdb_dev_id = platform_get_spkr_prot_acdb_id(new_snd_device[i]);
+                        else
+                            acdb_dev_id = acdb_device_table[new_snd_device[i]];
+                    }
 
                 if (!my_data->acdb_send_gain_dep_cal(acdb_dev_id, app_type,
                                                      acdb_dev_type, mode, level)) {
@@ -1862,6 +1890,7 @@ void *platform_init(struct audio_device *adev)
     my_data->fluence_in_voice_call = false;
     my_data->fluence_in_voice_rec = false;
     my_data->fluence_in_audio_rec = false;
+    my_data->fluence_in_hfp_call = false;
     my_data->external_spk_1 = false;
     my_data->external_spk_2 = false;
     my_data->external_mic = false;
@@ -1909,6 +1938,11 @@ void *platform_init(struct audio_device *adev)
         property_get("persist.audio.fluence.mode",value,"");
         if (!strncmp("broadside", value, sizeof("broadside"))) {
             my_data->fluence_mode = FLUENCE_BROADSIDE;
+        }
+
+        property_get("persist.audio.fluence.hfpcall",value,"");
+        if (!strncmp("true", value, sizeof("true"))) {
+            my_data->fluence_in_hfp_call = true;
         }
     }
 
@@ -2071,10 +2105,10 @@ acdb_init_fail:
     /* obtain source mic type from max mic count*/
     get_source_mic_type(my_data);
     ALOGD("%s: Fluence_Type(%d) max_mic_count(%d) mic_type(0x%x) fluence_in_voice_call(%d)"
-          " fluence_in_voice_rec(%d) fluence_in_spkr_mode(%d) ",
+          " fluence_in_voice_rec(%d) fluence_in_spkr_mode(%d) fluence_in_hfp_call(%d) ",
           __func__, my_data->fluence_type, my_data->max_mic_count, my_data->source_mic_type,
           my_data->fluence_in_voice_call, my_data->fluence_in_voice_rec,
-          my_data->fluence_in_spkr_mode);
+          my_data->fluence_in_spkr_mode, my_data->fluence_in_hfp_call);
 
     /* init usb */
     audio_extn_usb_init(adev);
@@ -3562,7 +3596,8 @@ snd_device_t platform_get_input_snd_device(void *platform, audio_devices_t out_d
                 }
                 adev->acdb_settings |= ANC_FLAG;
             } else if (my_data->fluence_type == FLUENCE_NONE ||
-                my_data->fluence_in_voice_call == false) {
+                my_data->fluence_in_voice_call == false ||
+                my_data->fluence_in_hfp_call == false) {
                 snd_device = SND_DEVICE_IN_HANDSET_MIC;
                 if (audio_extn_hfp_is_active(adev))
                     platform_set_echo_reference(adev, true, out_device);
@@ -3587,7 +3622,8 @@ snd_device_t platform_get_input_snd_device(void *platform, audio_devices_t out_d
             }
         } else if (out_device & AUDIO_DEVICE_OUT_SPEAKER) {
             if (my_data->fluence_type != FLUENCE_NONE &&
-                my_data->fluence_in_voice_call &&
+                (my_data->fluence_in_voice_call ||
+                 my_data->fluence_in_hfp_call) &&
                 my_data->fluence_in_spkr_mode) {
                 if((my_data->fluence_type & FLUENCE_QUAD_MIC) &&
                    (my_data->source_mic_type & SOURCE_QUAD_MIC)) {
@@ -4772,9 +4808,55 @@ bool platform_sound_trigger_device_needs_event(snd_device_t snd_device)
     return needs_event;
 }
 
-bool platform_sound_trigger_usecase_needs_event(audio_usecase_t uc_id __unused)
+bool platform_sound_trigger_usecase_needs_event(audio_usecase_t uc_id)
 {
-    return false;
+    bool needs_event = false;
+
+    switch(uc_id){
+    /* concurrent playback usecases needs event */
+    case USECASE_AUDIO_PLAYBACK_DEEP_BUFFER:
+    case USECASE_AUDIO_PLAYBACK_MULTI_CH:
+    case USECASE_AUDIO_PLAYBACK_OFFLOAD:
+    case USECASE_AUDIO_PLAYBACK_OFFLOAD2:
+        needs_event = true;
+        break;
+    /* concurrent playback in low latency allowed */
+    case USECASE_AUDIO_PLAYBACK_LOW_LATENCY:
+        break;
+    /* concurrent playback FM needs event */
+    case USECASE_AUDIO_PLAYBACK_FM:
+        needs_event = true;
+        break;
+
+    /* concurrent capture usecases, no event, capture handled by device
+    *  USECASE_AUDIO_RECORD:
+    *  USECASE_AUDIO_RECORD_COMPRESS:
+    *  USECASE_AUDIO_RECORD_LOW_LATENCY:
+
+    *  USECASE_VOICE_CALL:
+    *  USECASE_VOICE2_CALL:
+    *  USECASE_VOLTE_CALL:
+    *  USECASE_QCHAT_CALL:
+    *  USECASE_VOWLAN_CALL:
+    *  USECASE_VOICEMMODE1_CALL:
+    *  USECASE_VOICEMMODE2_CALL:
+    *  USECASE_COMPRESS_VOIP_CALL:
+    *  USECASE_AUDIO_RECORD_FM_VIRTUAL:
+    *  USECASE_INCALL_REC_UPLINK:
+    *  USECASE_INCALL_REC_DOWNLINK:
+    *  USECASE_INCALL_REC_UPLINK_AND_DOWNLINK:
+    *  USECASE_INCALL_REC_UPLINK_COMPRESS:
+    *  USECASE_INCALL_REC_DOWNLINK_COMPRESS:
+    *  USECASE_INCALL_REC_UPLINK_AND_DOWNLINK_COMPRESS:
+    *  USECASE_INCALL_MUSIC_UPLINK:
+    *  USECASE_INCALL_MUSIC_UPLINK2:
+    *  USECASE_AUDIO_SPKR_CALIB_RX:
+    *  USECASE_AUDIO_SPKR_CALIB_TX:
+    */
+    default:
+        ALOGV("%s:usecase_id[%d] no need to raise event.", __func__, uc_id);
+    }
+    return needs_event;
 }
 
 /* Read  offload buffer size from a property.
@@ -5835,12 +5917,12 @@ int platform_set_channel_map(void *platform, int ch_count, char *ch_map, int snd
     char mixer_ctl_name[44] = {0}; // max length of name is 44 as defined
     int ret;
     unsigned int i;
-    int set_values[8] = {0};
+    int set_values[FCC_8] = {0};
     struct platform_data *my_data = (struct platform_data *)platform;
     struct audio_device *adev = my_data->adev;
     ALOGV("%s channel_count:%d",__func__, ch_count);
-    if (NULL == ch_map) {
-        ALOGE("%s: Invalid channel mapping used", __func__);
+    if (NULL == ch_map || (ch_count < 1) || (ch_count > FCC_8)) {
+        ALOGE("%s: Invalid channel mapping or channel count value", __func__);
         return -EINVAL;
     }
 
@@ -5862,7 +5944,7 @@ int platform_set_channel_map(void *platform, int ch_count, char *ch_map, int snd
               __func__, mixer_ctl_name);
         return -EINVAL;
     }
-    for (i = 0; i< ARRAY_SIZE(set_values); i++) {
+    for (i = 0; i < (unsigned int)ch_count; i++) {
         set_values[i] = ch_map[i];
     }
 
@@ -5870,7 +5952,7 @@ int platform_set_channel_map(void *platform, int ch_count, char *ch_map, int snd
         set_values[0], set_values[1], set_values[2], set_values[3], set_values[4],
         set_values[5], set_values[6], set_values[7], ch_count);
 
-    ret = mixer_ctl_set_array(ctl, set_values, ch_count);
+    ret = mixer_ctl_set_array(ctl, set_values, ARRAY_SIZE(set_values));
     if (ret < 0) {
         ALOGE("%s: Could not set ctl, error:%d ch_count:%d",
               __func__, ret, ch_count);
